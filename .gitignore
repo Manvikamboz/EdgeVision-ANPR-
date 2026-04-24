@@ -1,0 +1,60 @@
+# EdgeSight – .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Model weights (large binary files – download/train separately)
+*.pt
+*.onnx
+*.engine
+*.trt
+!models/.gitkeep
+
+# Dataset images (too large for GitHub – use Roboflow / download scripts)
+data/vehicle_dataset/images/train/
+data/vehicle_dataset/images/val/
+data/vehicle_dataset/images/test/
+data/vehicle_dataset/labels/train/
+data/vehicle_dataset/labels/val/
+data/vehicle_dataset/labels/test/
+data/raw/
+data/processed/
+
+# Output / run artifacts
+outputs/
+runs/
+/tmp/
+
+# Temp video processing files
+/tmp/edgesight_upload/
+
+# Environment variables
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Streamlit cache
+.streamlit/
