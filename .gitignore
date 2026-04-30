@@ -23,18 +23,18 @@ env/
 !models/.gitkeep
 
 # Dataset images (too large for GitHub – use Roboflow / download scripts)
-data/vehicle_dataset/images/train/
-data/vehicle_dataset/images/val/
-data/vehicle_dataset/images/test/
-data/vehicle_dataset/labels/train/
-data/vehicle_dataset/labels/val/
-data/vehicle_dataset/labels/test/
+data/train/
+data/test/
+data/plate_dataset/
+data/vehicle_dataset/images/
+data/vehicle_dataset/labels/
 data/raw/
 data/processed/
 
 # Output / run artifacts
 outputs/
 runs/
+scratch/
 /tmp/
 
 # Temp video processing files

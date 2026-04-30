@@ -22,6 +22,7 @@ import numpy as np
 import yaml
 
 from src.preprocessor import Preprocessor
+from src.plate_detector import PlateDetector
 
 
 # ─── Data models ─────────────────────────────────────────────────────────────
@@ -34,6 +35,11 @@ class Detection:
     bbox: List[int]          # [x1, y1, x2, y2]  pixel coords
     bbox_norm: List[float]   # [cx, cy, w, h]     normalised 0-1
     frame_id: int = 0
+    
+    # Plate Detection & OCR
+    plate_bbox: Optional[List[int]] = None
+    plate_text: str = ""
+    plate_conf: float = 0.0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -78,13 +84,14 @@ class VehicleDetector:
 
     def __init__(
         self,
-        weights_path: str = "yolov8n.pt",
+        weights_path: str = "models/yolo11n.pt",
         confidence: float = 0.45,
         iou_threshold: float = 0.45,
         target_classes: Optional[dict] = None,
         img_size: int = 640,
         device: str = "cpu",
         preprocessor: Optional[Preprocessor] = None,
+        plate_config: Optional[dict] = None,
     ) -> None:
         from ultralytics import YOLO
 
@@ -96,26 +103,56 @@ class VehicleDetector:
         self.target_classes = target_classes or self.DEFAULT_VEHICLE_CLASSES
         self.preprocessor = preprocessor or Preprocessor()
 
-        print(f"[EdgeSight] Loading YOLOv8n: {weights_path}  device={device}")
+        print(f"[EdgeSight] Loading Model: {weights_path}  device={device}")
         self.model = YOLO(weights_path)
         self.model.to(device)
+        
+        # Initialize the specialized PlateDetector
+        pc = plate_config or {}
+        self.plate_detector = PlateDetector(
+            weights_path=pc.get("weights", "models/yolo11n.pt"),
+            confidence=pc.get("confidence_threshold", 0.35),
+            img_size=pc.get("img_size", 320),
+            device=device
+        )
         print("[EdgeSight] Model ready ✓")
 
     @classmethod
     def from_config(cls, config_path: str | Path) -> "VehicleDetector":
         with open(config_path) as f:
             cfg = yaml.safe_load(f)
+        
         m = cfg["model"]
-        weights = m.get("custom_weights") or m.get("weights", "yolov8n.pt")
-        class_names: dict = {int(k): v for k, v in cfg.get("vehicle_class_names", {}).items()}
+        # Prioritise custom weights if specified and exists
+        custom_weights = m.get("custom_weights")
+        if custom_weights and Path(custom_weights).exists():
+            weights = custom_weights
+            is_custom = True
+        else:
+            weights = m.get("weights", "models/yolo11n.pt")
+            is_custom = False
+
+        # If using standard YOLO weights (COCO), use COCO IDs even if config has custom ones
+        is_coco = "yolo11" in str(weights).lower() or "yolov8" in str(weights).lower()
+        
+        if is_coco and not is_custom:
+            class_names = cls.DEFAULT_VEHICLE_CLASSES
+            print(f"[EdgeSight] Using standard COCO vehicle classes: {class_names}")
+        else:
+            class_names = {int(k): v for k, v in cfg.get("vehicle_class_names", {}).items()}
+            if not class_names:
+                class_names = cls.DEFAULT_VEHICLE_CLASSES
+            print(f"[EdgeSight] Using custom vehicle classes: {class_names}")
+
         return cls(
             weights_path=weights,
             confidence=m.get("confidence_threshold", 0.45),
             iou_threshold=m.get("iou_threshold", 0.45),
-            target_classes=class_names or None,
+            target_classes=class_names,
             img_size=m.get("img_size", 640),
             device=m.get("device", "cpu"),
             preprocessor=Preprocessor.from_config(cfg),
+            plate_config=cfg.get("plate_model"),
         )
 
     # ── Core inference ────────────────────────────────────────────────────────
@@ -159,6 +196,10 @@ class VehicleDetector:
                 cy = ((y1 + y2) / 2) / h
                 bw = (x2 - x1) / w
                 bh = (y2 - y1) / h
+                
+                # Detect and read License Plate
+                plate_bbox, plate_text, plate_conf = self.plate_detector.detect_and_read(frame, [x1, y1, x2, y2])
+
                 detections.append(Detection(
                     class_id=cls_id,
                     class_name=self.target_classes[cls_id],
@@ -166,6 +207,25 @@ class VehicleDetector:
                     bbox=[x1, y1, x2, y2],
                     bbox_norm=[round(cx,4), round(cy,4), round(bw,4), round(bh,4)],
                     frame_id=frame_id,
+                    plate_bbox=plate_bbox,
+                    plate_text=plate_text,
+                    plate_conf=plate_conf
+                ))
+
+        if not detections:
+            # Fallback Mode: Look for plates in the whole image if no vehicle was found
+            plate_bbox, plate_text, plate_conf = self.plate_detector.detect_and_read(frame, None)
+            if plate_bbox and plate_text:
+                detections.append(Detection(
+                    class_id=-1, # Unknown vehicle
+                    class_name="Unknown",
+                    confidence=plate_conf,
+                    bbox=plate_bbox,
+                    bbox_norm=[0, 0, 0, 0],
+                    frame_id=frame_id,
+                    plate_bbox=plate_bbox,
+                    plate_text=plate_text,
+                    plate_conf=plate_conf
                 ))
 
         return FrameResult(
@@ -206,7 +266,7 @@ class VehicleDetector:
         thickness: int = 2, font_scale: float = 0.6,
     ) -> np.ndarray:
         """Return annotated copy of the frame."""
-        palette = {2: (0,200,255), 3: (0,255,120), 5: (255,80,80), 7: (200,0,255)}
+        palette = {0: (0,200,255), 1: (0,255,120), 2: (255,80,80), 3: (200,0,255)}
         vis = frame.copy()
         for det in result.detections:
             x1, y1, x2, y2 = det.bbox
@@ -217,6 +277,19 @@ class VehicleDetector:
             cv2.rectangle(vis, (x1,y1-th-6), (x1+tw+4,y1), color, -1)
             cv2.putText(vis, label, (x1+2,y1-4),
                         cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0,0,0), 1, cv2.LINE_AA)
+            
+            # Draw License Plate
+            if det.plate_bbox and det.plate_text:
+                px1, py1, px2, py2 = det.plate_bbox
+                # Draw plate bounding box in bright green
+                cv2.rectangle(vis, (px1, py1), (px2, py2), (0, 255, 0), max(1, thickness - 1))
+                # Draw OCR text above the plate
+                plate_label = f"[{det.plate_text}]"
+                (ptw, pth), _ = cv2.getTextSize(plate_label, cv2.FONT_HERSHEY_SIMPLEX, font_scale + 0.1, 2)
+                cv2.rectangle(vis, (px1, py1 - pth - 6), (px1 + ptw + 4, py1), (0, 0, 0), -1)
+                cv2.putText(vis, plate_label, (px1 + 2, py1 - 4),
+                            cv2.FONT_HERSHEY_SIMPLEX, font_scale + 0.1, (0, 255, 0), 2, cv2.LINE_AA)
+
         cv2.putText(vis,
             f"Vehicles: {result.count}  |  {result.inference_time_ms:.1f} ms",
             (10,28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2, cv2.LINE_AA)

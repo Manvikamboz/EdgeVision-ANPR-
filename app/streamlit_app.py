@@ -223,15 +223,18 @@ with st.sidebar:
     use_bus  = st.checkbox("🚌 Bus",        value=True)
     use_truck= st.checkbox("🚛 Truck",      value=True)
 
-    target_map = {2: "car", 3: "motorcycle", 5: "bus", 7: "truck"}
-    enabled = {2: use_car, 3: use_moto, 5: use_bus, 7: use_truck}
+    target_map = {0: "car", 1: "motorcycle", 2: "bus", 3: "truck"}
+    enabled = {0: use_car, 1: use_moto, 2: use_bus, 3: use_truck}
     active_classes = {k: v for k, v in target_map.items() if enabled[k]}
 
     st.markdown("---")
     st.markdown("## 📊 Model Info")
-    st.info("**Model**: YOLOv8n  \n**Size**: ~6 MB  \n**GFLOPs**: ~3.2  \n**Framework**: PyTorch")
+    st.info("**Model**: Custom YOLOv8n (Vehicle + Plate OCR)  \n**Size**: ~6 MB  \n**GFLOPs**: ~3.2  \n**Framework**: PyTorch")
 
     run_benchmark = st.button("⚡ Run Speed Benchmark")
+    
+    st.markdown("---")
+    plate_log_container = st.empty()
 
 
 # ─── Main tabs ────────────────────────────────────────────────────────────────
@@ -278,6 +281,14 @@ with tab_img:
         with col_result:
             st.markdown("**◉ Detections**")
             st.image(bgr_to_pil(annotated), width=480)
+            
+        # Update Plate Log
+        plate_logs = [d.plate_text for d in result.detections if getattr(d, 'plate_text', None)]
+        if plate_logs:
+            with plate_log_container.container():
+                st.markdown("### 🏷️ Detected Plates")
+                for p in plate_logs:
+                    st.markdown(f"`{p}`")
 
         # ── Metric strip ──────────────────────────────────────────────────
         st.markdown("---")
@@ -300,10 +311,14 @@ with tab_img:
             </div>""", unsafe_allow_html=True)
         with m4:
             st.markdown(f"""<div class="metric-card">
-                <div class="metric-label">Wall Time</div>
-                <div class="metric-value">{wall_ms:.1f}</div>
-                <div class="metric-unit">ms</div>
+                <div class="metric-label">Model Size</div>
+                <div class="metric-value">6.2</div>
+                <div class="metric-unit">MB</div>
             </div>""", unsafe_allow_html=True)
+            
+        if plate_logs:
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.success(f"🚙 **License Plate(s) Detected:** {', '.join(plate_logs)}")
 
         # ── Detection list ────────────────────────────────────────────────
         st.markdown("#### 🔍 Detection Details")
@@ -315,12 +330,14 @@ with tab_img:
             for i, det in enumerate(result.detections, 1):
                 cls = color_map.get(det.class_name, "")
                 x1,y1,x2,y2 = det.bbox
+                plate_span = f'<span style="background:rgba(167,139,250,0.2);color:#a78bfa;padding:2px 8px;border-radius:12px;font-size:0.8rem;margin-left:auto;">{det.plate_text}</span>' if det.plate_text else ""
                 st.markdown(f"""
                 <div class="det-row {cls}">
                   <span style="color:#64748b;font-size:0.8rem">#{i}</span>
                   <span class="det-class">{det.class_name.upper()}</span>
                   <span class="det-conf">{det.confidence:.1%}</span>
                   <span class="det-bbox">[{x1}, {y1}, {x2}, {y2}]</span>
+                  {plate_span}
                 </div>""", unsafe_allow_html=True)
         else:
             st.info("No vehicles detected. Try lowering the confidence threshold.")
@@ -402,12 +419,14 @@ with tab_video:
 
             progress    = st.progress(0, text="Processing frames…")
             live_frame  = st.empty()   # live annotated preview
+            main_plate_display = st.empty() # live plate banner
             status_bar  = st.empty()   # live stats
 
             all_results = []
             frame_id    = 0
             total_vehicles = 0
             inf_times   = []
+            seen_plates = set()
 
             while True:
                 ret, frame = cap.read()
@@ -421,6 +440,16 @@ with tab_video:
                     all_results.append(result.to_dict())
                     total_vehicles = max(total_vehicles, result.count)
                     inf_times.append(result.inference_time_ms)
+                    
+                    # Update Plate Log
+                    new_plates = [d.plate_text for d in result.detections if getattr(d, 'plate_text', None) and d.plate_text not in seen_plates]
+                    if new_plates:
+                        seen_plates.update(new_plates)
+                        main_plate_display.success(f"🚙 **Latest License Plate Detected:** {new_plates[-1]}")
+                        with plate_log_container.container():
+                            st.markdown("### 🏷️ Detected Plates")
+                            for p in reversed(list(seen_plates)):
+                                st.markdown(f"`{p}`")
 
                     # ── Write annotated frame to output video ──────────────
                     writer.write(annotated)

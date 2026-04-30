@@ -3,21 +3,28 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 model:
-  name: yolov8n                   # nano variant – ~6 MB / ~3.2 GFLOPs
-  weights: models/yolov8n.pt      # COCO pretrained (auto-downloaded if missing)
-  custom_weights: null            # set to models/best_vehicle.pt after training
+  name: yolo11n                   # Latest nano variant – Optimized for Edge
+  weights: models/yolo11n.pt
+  custom_weights: models/best_vehicle_yolo11.pt # Verified 4-class model (Car, Bike, Bus, Truck)
   img_size: 640
-  confidence_threshold: 0.45
+  confidence_threshold: 0.25
+  iou_threshold: 0.45
+
+# 🆕 Phase 2: License Plate Detection Model
+plate_model:
+  weights: models/yolo11n.pt           # Using pre-trained as placeholder (replace with best_plate.pt later)
+  img_size: 320                   # Smaller size is fine for plate crops
+  confidence_threshold: 0.35
   iou_threshold: 0.45
   device: "cpu"                   # "0" for GPU, "cpu" for CPU
 
-# COCO class IDs for vehicles
-vehicle_classes:   [2, 3, 5, 7]
+# Custom Dataset class IDs (0: car, 1: motorcycle, 2: bus, 3: truck)
+vehicle_classes:   [0, 1, 2, 3]
 vehicle_class_names:
-  2: "car"
-  3: "motorcycle"
-  5: "bus"
-  7: "truck"
+  0: "car"
+  1: "motorcycle"
+  2: "bus"
+  3: "truck"
 
 training:
   epochs: 80
