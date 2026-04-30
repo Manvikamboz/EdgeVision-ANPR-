@@ -3,11 +3,7 @@
 > Real-time vehicle detection · License plate recognition (ANPR) · OCR  
 > Designed for edge deployment with minimal computational cost.
 
-<p align="center">
-  <video src="https://github.com/Manvikamboz/EdgeVision-ANPR-/raw/main/assets/cinnamon-2026-04-30T104036+0530.mp4" width="100%" controls>
-    Your browser does not support the video tag.
-  </video>
-</p>
+![EdgeSight Prototype Demo](https://github.com/Manvikamboz/EdgeVision-ANPR-/raw/main/assets/prototype_demo.mp4)
 
 ---
 
